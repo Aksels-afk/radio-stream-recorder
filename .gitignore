@@ -20,3 +20,6 @@ recordings/
 # IDE
 .vscode/
 .idea/
+
+# Logs
+*.log

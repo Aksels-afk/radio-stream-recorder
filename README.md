@@ -19,7 +19,7 @@ This layout is designed to be easy to sync or upload into object storage later (
 
 ### Requirements
 
-- **Python**: 3.12+ (3.12 used in Docker image)
+- **Python**: 3.14.3 (3.12 used in Docker image)
 - **ffmpeg**: Installed and available on the `PATH` when running outside Docker
 - **Docker Desktop**: For containerized runs
 
@@ -56,7 +56,7 @@ You can configure the recorder via **CLI arguments** or **environment variables*
   - **Env**: `LOG_LEVEL` (default: `INFO`)
   - **Description**: Standard Python logging level (`DEBUG`, `INFO`, `WARNING`, etc.).
 
-### Running locally (without Docker)
+### If you want to run the app locally (without Docker)
 
 1. **Install dependencies**
 
@@ -143,6 +143,7 @@ The container will keep running and writing chunks until you stop it (e.g. `Ctrl
 - **Time-based MP3 chunks**: Using `ffmpeg`'s `segment` muxer with `strftime`-based filenames makes it easy to map files to wall-clock time and ingest them later into storage or downstream processing.
 - **Graceful shutdown**: Signals are captured in the Python process, which then terminates `ffmpeg` and waits, so the current file is finalized instead of being left in a corrupted state.
 - **Future storage integration**: The flat directory of time-stamped MP3 files is intentionally simple, so a later step can sync or upload chunks to Azure Blob Storage, S3, or another object store without changing the core recording logic.
+- **Added Logging functionality**: Easily track and see what is exactly happening in the code in recorder.log. Tracks connection attempts, reconnects, shutdown, and per-segment creation.
 
 ### Azure deployment plan
 

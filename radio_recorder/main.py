@@ -6,10 +6,21 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from threading import Event, Thread
+from typing import List, Optional, Set
+from logging.handlers import RotatingFileHandler
 
 
 logger = logging.getLogger("radio_recorder")
+
+
+class FlushingRotatingFileHandler(RotatingFileHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            self.flush()
+        except Exception:
+            pass
 
 
 class RecorderConfig:
@@ -35,6 +46,11 @@ class FFmpegRecorder:
         self.config = config
         self.process: Optional[subprocess.Popen] = None
         self._shutdown = False
+        self._last_run_duration: float = 0.0
+        # Track files we have already logged as created
+        self._known_files: Set[Path] = set(
+            p for p in self.config.output_dir.glob("*.mp3") if p.is_file()
+        )
 
     def build_command(self) -> List[str]:
         """
@@ -76,14 +92,49 @@ class FFmpegRecorder:
         ]
         return cmd
 
+    def _watch_output_dir(self, stop_event: Event) -> None:
+        """
+        Background watcher that logs when new MP3 files appear in the output directory.
+
+        This does not affect recording; it's purely for observability.
+        """
+        poll_interval = 2.0
+        while not stop_event.is_set():
+            try:
+                current_files = {
+                    p for p in self.config.output_dir.glob("*.mp3") if p.is_file()
+                }
+                new_files = sorted(current_files - self._known_files)
+                for path in new_files:
+                    logger.info("New segment written: %s", path.name)
+                if new_files:
+                    self._known_files.update(new_files)
+            except OSError as exc:
+                logger.warning("Error while watching output directory for new segments: %s", exc)
+            stop_event.wait(poll_interval)
+
     def start_once(self) -> int:
         """Start a single ffmpeg recording session and wait for it to exit."""
         cmd = self.build_command()
-        logger.info("Starting ffmpeg: %s", " ".join(cmd))
+        logger.info("Attempting to connect to stream via ffmpeg.")
+        logger.debug("ffmpeg command: %s", " ".join(cmd))
+        watcher_stop = Event()
+        watcher_thread = Thread(
+            target=self._watch_output_dir,
+            args=(watcher_stop,),
+            name="segment-watcher",
+            daemon=True,
+        )
+        start_ts = time.monotonic()
         try:
             self.process = subprocess.Popen(cmd)
-            return self.process.wait()
+            watcher_thread.start()
+            exit_code = self.process.wait()
+            self._last_run_duration = time.monotonic() - start_ts
+            return exit_code
         finally:
+            watcher_stop.set()
+            watcher_thread.join(timeout=5.0)
             self.process = None
 
     def request_shutdown(self) -> None:
@@ -115,14 +166,24 @@ class FFmpegRecorder:
                 logger.info("Recorder stopped gracefully.")
                 break
 
-            if exit_code == 0:
+            duration = self._last_run_duration
+            if duration < 10:
+                # Exited very quickly – likely failed to connect or negotiate stream
                 logger.warning(
-                    "ffmpeg exited with code 0 but shutdown not requested; restarting after %s seconds.",
+                    "Connection attempt failed quickly (%.1f seconds, exit code %s). "
+                    "Will retry after %s seconds.",
+                    duration,
+                    exit_code,
                     backoff_seconds,
                 )
             else:
-                logger.warning(
-                    "ffmpeg exited with code %s; restarting after %s seconds.",
+                # Ran for a while then exited – treat as lost connection
+                level = logging.ERROR if exit_code != 0 else logging.WARNING
+                logger.log(
+                    level,
+                    "Connection to stream was lost after %.1f seconds (exit code %s). "
+                    "Will retry after %s seconds.",
+                    duration,
                     exit_code,
                     backoff_seconds,
                 )
@@ -186,11 +247,39 @@ def parse_args(argv: Optional[list] = None) -> RecorderConfig:
 
 
 def setup_logging() -> None:
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Avoid duplicate handlers if setup_logging is called more than once
+    root_logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # Optional file handler
+    log_file_path = os.getenv("LOG_FILE_PATH", "recorder.log")
+    try:
+        file_handler = FlushingRotatingFileHandler(
+            log_file_path,
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=3,
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+    except OSError:
+        # If we cannot write to the log file, continue with console-only logging
+        logger.warning("Could not create log file at %s; continuing without file logging.", log_file_path)
 
 
 def main(argv: Optional[list] = None) -> int:

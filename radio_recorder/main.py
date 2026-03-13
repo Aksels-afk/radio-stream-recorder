@@ -10,6 +10,10 @@ from threading import Event, Thread
 from typing import List, Optional, Set
 from logging.handlers import RotatingFileHandler
 
+# UTC for timestamps and strftime-based filenames
+os.environ.setdefault("TZ", "UTC")
+if hasattr(time, "tzset"):
+    time.tzset()
 
 logger = logging.getLogger("radio_recorder")
 

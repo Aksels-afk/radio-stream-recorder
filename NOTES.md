@@ -27,8 +27,6 @@ All timestamps in logs and filenames are in UTC to for simpler operations.
 
 Made a logger which logs all actions performed by the code, including connections to streams and saved files and their names.
 
-
-
 - **Choice of ffmpeg vs pure Python audio handling**
   - Decoding and segmenting AAC/HLS streams directly in Python requires a stack of libraries (e.g., `ffmpeg-python`, `pydub`, `PyAV`) and careful handling of edge cases.
   - `ffmpeg` is already battle-tested for:

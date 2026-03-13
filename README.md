@@ -132,6 +132,9 @@ docker run --rm \
   radio-recorder:latest
 ```
 
+App can also be run from Docker desktop app, but Environment variables must be set up.
+e.g. STREAM_URL = https://stream3.ehrhiti.lv:8000/Stream_93_LV01.aac
+
 The container will keep running and writing chunks until you stop it (e.g. `Ctrl+C` if run in the foreground, or `docker stop` if run detached).
 
 ### Design notes

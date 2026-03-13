@@ -25,6 +25,11 @@ Bitrate configurable in main.py class RecorderConfig. Not that much focus on com
 
 All timestamps in logs and filenames are in UTC to for simpler operations.
 
+Tested both HLS and AAC streams. Both successfully write to mp3 files with correct formats, locally and docker.
+
+What happens if I turn off internet connection while app is running and actively writing a segment??
+Looks like it recovers nicely, continuing from the point of last connection in the same segment.
+
 Made a logger which logs all actions performed by the code, including connections to streams and saved files and their names.
 
 - **Choice of ffmpeg vs pure Python audio handling**
